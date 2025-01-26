@@ -89,7 +89,7 @@ def main():
     output_dir = args.output_dir
     if not os.path.exists(output_dir):
         os.makedirs(output_dir, exist_ok=True)
-    output_text = os.path.join(output_dir, "output_text.jsonl")
+    output_text = os.path.join(output_dir, "output_with_text.jsonl")
 
     logging.info("<========loading model========>")
     assistant = MultiTurnAssistant(args.whisper_path, args.llm_path)

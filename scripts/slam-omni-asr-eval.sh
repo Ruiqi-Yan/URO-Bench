@@ -35,7 +35,7 @@ codec_decoder_type=CosyVoice
 num_latency_tokens=0    # number of latency tokens (same as the number in training)
 do_layershift=false      # if false, tokens in each layers use the same codebook, otherwise, use different codebooks
 
-ckpt_path=/data/ruiqi.yan/URO-Bench-log/${model_name}-test/Qwen2-0.5b-gpu4-btz3-lr1e-4-fp16-epochs10-whisper_small-latency0-group3-Final-Ablation-VoiceAssistant-400K-v2-Total_update_100K-s2s_epoch_3_step_19594
+ckpt_path=/data/ruiqi.yan/URO-Bench-log/slam-omni-test/Qwen2-0.5b-whisper_small-latency0-group3-single-round-English
 split=test
 
 load_from_cache_file=false
@@ -110,6 +110,12 @@ do
     language=$(echo "$pair" | cut -d' ' -f5)
     dataset_path=/data/ruiqi.yan/URO-Bench-data/${level}/${dataset_name}/test.jsonl
 
+    if [[ ${language} == "en" ]]; then
+        ckpt_path=/data/ruiqi.yan/URO-Bench-log/slam-omni-test/Qwen2-0.5b-whisper_small-latency0-group3-single-round-English
+    else
+        ckpt_path=/data/ruiqi.yan/URO-Bench-log/slam-omni-test/Qwen2-0.5b-whisper_small-latency0-group3-multi-round-Chinese
+    fi
+
     # output dir
     infer_output_dir=${log_dir}/eval/${level}/${dataset_name}
     eval_output_dir=$infer_output_dir/eval_with_asr
@@ -136,7 +142,6 @@ do
         ++model_config.encoder_projector=linear \
         ++model_config.codec_decoder_path=$codec_decoder_path \
         ++model_config.codec_decode=true \
-        ++model_config.tts_adapter=$tts_adapter \
         ++model_config.vocab_config.code_layer=$code_layer \
         ++model_config.vocab_config.total_audio_vocabsize=$total_audio_vocabsize \
         ++model_config.vocab_config.total_vocabsize=$total_vocabsize \
@@ -164,6 +169,8 @@ do
         ++train_config.model_name=s2s \
         ++train_config.freeze_encoder=true \
         ++train_config.freeze_llm=true \
+        ++train_config.freeze_encoder_projector=true \
+        ++train_config.freeze_group_decode_adapter=true \
         ++train_config.batching_strategy=custom \
         ++train_config.num_epochs=1 \
         ++train_config.val_batch_size=1 \
@@ -178,10 +185,9 @@ do
         ++decode_config.top_k=$top_k \
         ++decode_config.temperature=$temperature \
         ++decode_config.decode_text_only=$decode_text_only \
-        ++decode_config.upsampling_factor=$upsampling_factor \
         ++decode_config.do_layershift=$do_layershift \
-        ++decode_config.num_latency_tokens=$num_latency_tokens \
         ++decode_log=$infer_output_dir \
+        ++decode_config.num_latency_tokens=$num_latency_tokens \
         ++ckpt_path=$ckpt_path/model.pt \
         ++output_text_only=$output_text_only \
         ++inference_online=$inference_online \
@@ -223,36 +229,7 @@ do
 
 done
 
-# conclusion
-python $code_dir/evaluate.py --eval_dir ${log_dir}/eval
-
-
-
-
-
-
-#!/bin/bash
-export CUDA_VISIBLE_DEVICES=0
-export TOKENIZERS_PARALLELISM=false
-export OMP_NUM_THREADS=1
-export LD_LIBRARY_PATH=/home/v-wenxichen/anaconda3/envs/slam/lib:$LD_LIBRARY_PATH
-export PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT=2
-export CUDA_LAUNCH_BLOCKING=1
-
-
-code_dir=examples/s2s
-
-whisper_size=small                  # tiny base small medium large-v3
-speech_encoder_path="/valleblob/v-wenxichen/models/whisper/${whisper_size}.pt"   # replace this with your own whisper model path (different whisper size)
-llm_path="Qwen/Qwen2-0.5B"
-codec_decoder_path="/valleblob/v-wenxichen/models/CosyVoice/CosyVoice-300M-SFT" # replace this with your own CosyVoice model path
-
-encoder_dim=768                     # 384 512 768 896 1024 1280 
-mel_size=80                         # 80 128 (128 for whisper-large only, 80 for others)
-llm_dim=896                         # 896 1536 2048 3584  -> 0.5B 1.5B 3B 7B
-
-task_type=s2s
-
+# multi-round eval
 # vocabulary settings
 code_layer=3                        # 1 single semantic code layer   2 3 4 5 6 7 8 group semantic code layers 
 total_audio_vocabsize=4160          # the vocab size of the codec token
@@ -264,9 +241,6 @@ code_type=CosyVoice                 # CosyVoice or SNAC
 codec_decoder_type=CosyVoice
 num_latency_tokens=0                # number of latency tokens (same as the number in training)
 do_layershift=false                 # if false, tokens in each layers use the same codebook, otherwise, use different codebooks
-
-ckpt_path=/valleblob/v-wenxichen/exp/s2s/en-mix/s2s_train_v4-Qwen2-0.5b-gpu4-btz3-lr1e-4-fp16-epochs10-whisper_small-latency0-group3-multiround-from_pretrained/s2s_epoch_2_step_23152
-
 
 # model settings
 group_decode=true
@@ -290,22 +264,45 @@ speech_sample_rate=22050            # 22050 for CosyVoice, 24000 for SNAC
 inference_online=false
 
 multi_round=true
-batch_input_jsonl=/home/v-wenxichen/data/s2s/mt_bench/mt_test/test.jsonl
-online_output_dir=/home/v-wenxichen/exp/multi-round/results
-audio_prompt_path=./examples/s2s/audio_prompt/en/prompt_6.wav     # replace this with your own audio prompt path or our provided audio prompt path
-# audio_prompt_path=./examples/s2s/audio_prompt/en/prompt_6.wav        # replace this with your own audio prompt path or our provided audio prompt path
+audio_prompt_path=/data/ruiqi.yan/URO-Bench/examples/${model_name}-test/audio_prompt/en/prompt_6.wav      # replace this with your own audio prompt path or our provided audio prompt path
 
-decode_log=$ckpt_path/s2s_decode_${split}_trp${text_repetition_penalty}_arp${audio_repetition_penalty}_seed${dataset_sample_seed}_greedy
-if [ "$do_sample" = true ] ; then
-    decode_log=$ckpt_path/s2s_decode_${split}_trp${text_repetition_penalty}_arp${audio_repetition_penalty}_seed${dataset_sample_seed}_sampling_topk${top_k}_topp${top_p}_temp${temperature}
-fi
+# multi-round datasets
+manifest_format=jsonl
+datasets=(
+    "mt_test 190 multi basic en"
+    "mtpro_en 55 multi pro en"
+    "mtpro_zh 49 multi pro zh"
+)
 
-if [ "$decode_text_only" = true ] ; then
-    decode_log=$decode_log"_text_only"
-fi
+# eval
+for pair in "${datasets[@]}"
+do
+    # get dataset info
+    dataset_name=$(echo "$pair" | cut -d' ' -f1)
+    sample_number=$(echo "$pair" | cut -d' ' -f2)
+    eval_mode=$(echo "$pair" | cut -d' ' -f3)
+    level=$(echo "$pair" | cut -d' ' -f4)
+    language=$(echo "$pair" | cut -d' ' -f5)
+    dataset_path=/data/ruiqi.yan/URO-Bench-data/${level}/${dataset_name}/test.jsonl
 
-# -m debugpy --listen 5678 --wait-for-client
-python $code_dir/inference_s2s.py \
+    if [[ ${language} == "en" ]]; then
+        ckpt_path=/data/ruiqi.yan/URO-Bench-log/slam-omni-test/Qwen2-0.5b-whisper_small-latency0-group3-multi-round-English
+    else
+        ckpt_path=/data/ruiqi.yan/URO-Bench-log/slam-omni-test/Qwen2-0.5b-whisper_small-latency0-group3-multi-round-Chinese
+    fi
+
+    # output dir
+    infer_output_dir=${log_dir}/eval/${level}/${dataset_name}
+    eval_output_dir=$infer_output_dir/eval_with_asr
+
+    source /home/visitor/miniconda3/etc/profile.d/conda.sh
+    # put your env name here, this env depends on the model you are testing
+    conda activate yrq-omni
+
+    # inference
+    cd /data/ruiqi.yan/URO-Bench-data/${level}/${dataset_name}
+    # -m debugpy --listen 5678 --wait-for-client
+    python $code_dir/examples/${model_name}-test/inference_s2s.py \
         --config-path "conf" \
         --config-name "prompt.yaml" \
         hydra.run.dir=$ckpt_path \
@@ -359,7 +356,7 @@ python $code_dir/inference_s2s.py \
         ++decode_config.temperature=$temperature \
         ++decode_config.decode_text_only=$decode_text_only \
         ++decode_config.do_layershift=$do_layershift \
-        ++decode_log=$decode_log \
+        ++decode_log=$infer_output_dir \
         ++decode_config.num_latency_tokens=$num_latency_tokens \
         ++ckpt_path=$ckpt_path/model.pt \
         ++output_text_only=$output_text_only \
@@ -367,7 +364,32 @@ python $code_dir/inference_s2s.py \
         ++speech_sample_rate=$speech_sample_rate \
         ++audio_prompt_path=$audio_prompt_path \
         ++multi_round=$multi_round \
-        ++batch_input_jsonl=$batch_input_jsonl \
-        ++log_config.online_output_dir=$online_output_dir \
+        ++batch_input_jsonl=$dataset_path \
+        ++log_config.online_output_dir=$infer_output_dir \
+        ++log_config.log_file="/data/ruiqi.yan/exp/s2s/debug/inference.log" \
+        ++log_config.wandb_dir="/data/ruiqi.yan/exp/wandb_log"    # put your log file here
 
-# bash ./examples/s2s/scripts/inference/inference_s2s_batch_multi-round.sh
+    source /home/visitor/miniconda3/etc/profile.d/conda.sh
+    conda activate yrq-uro               # put your env name here
+    # asr
+    python $code_dir/asr_for_eval.py \
+        --input_dir $infer_output_dir \
+        --model_dir $whisper_dir \
+        --output_dir $infer_output_dir \
+        --number $sample_number \
+        --dataset $dataset_path \
+        --multi
+
+    # assign scores
+    python $code_dir/mark.py \
+    --mode $eval_mode \
+    --question $infer_output_dir/output_with_text.jsonl \
+    --answer $infer_output_dir/output_with_text.jsonl \
+    --output_dir $eval_output_dir \
+    --dataset $dataset_name \
+    --audio_dir $infer_output_dir
+
+done
+
+# conclusion
+python $code_dir/evaluate.py --eval_dir ${log_dir}/eval
