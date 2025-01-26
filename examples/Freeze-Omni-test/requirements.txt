@@ -1,0 +1,11 @@
+cryptography
+flask==3.0.3
+flask_socketio==5.3.4
+librosa==0.10.2.post1
+numpy==1.24.4
+silero-vad==5.1.2
+soundfile==0.12.1
+torch==2.2.0
+torchaudio==2.2.0
+transformers==4.45.2
+PyYAML==6.0.2

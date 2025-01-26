@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Freeze-Omni Demo</title>
+    <script src="https://unpkg.com/socket.io-client@4.8.1/dist/socket.io.min.js"></script>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+        .container {
+            text-align: center;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        canvas {
+            border: 1px solid black;
+            margin: 10px 0;
+        }
+        button {
+            margin: 5px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .alert {
+            display: none;
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f44336;
+            color: white;
+            border-radius: 5px;
+        }
+        .text-input-container {
+            margin-top: 30px;
+        }
+        .text-input-container textarea {
+            padding: 10px;
+            font-size: 16px;
+            width: 80%;
+            height: 150px;
+            margin-bottom: 20px;
+            resize: none;
+            overflow: auto;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Freeze-Omni Demo</h1>
+        <button id="startButton">Dialogue Start</button>
+        <button id="stopButton" disabled>Dialogue Stop</button>
+        <h2>Input Waveform</h2>
+        <canvas id="inputCanvas" width="600" height="100"></canvas>
+        <h2>Output Waveform</h2>
+        <canvas id="outputCanvas" width="600" height="100"></canvas>
+        <audio id="remoteAudio" autoplay playsinline></audio>
+        <div id="alertBox" class="alert">Too many users connected. Please refresh and try again.</div>
+        <div id="alertBox2" class="alert">Connect time out. Please refresh and reconnect.</div>
+        <div id="alertBox3" class="alert">Prompt set success.</div>
+        <div class="text-input-container">
+            <textarea id="textInput" placeholder="Write prompt at here and click 'Set Prompt', then restart interaction."></textarea>
+            <button id="sendTextButton">Set Prompt</button>
+        </div>
+    </div>
+    <script>
+        const remoteAudio = document.getElementById('remoteAudio');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const inputCanvas = document.getElementById('inputCanvas');
+        const outputCanvas = document.getElementById('outputCanvas');
+        const inputCtx = inputCanvas.getContext('2d');
+        const outputCtx = outputCanvas.getContext('2d');
+        const alertBox = document.getElementById('alertBox');
+        const alertBox2 = document.getElementById('alertBox2');
+        const alertBox3 = document.getElementById('alertBox2');
+        const textInput = document.getElementById('textInput');
+        const sendTextButton = document.getElementById('sendTextButton');
+        const socket = io();
+        const audioQueue = [];
+        let isPlaying = false;
+        let currentSource = null;
+
+        let localStream;
+        let audioContext;
+        let audioContext2;
+        let processor;
+        let isRecording = false;
+        const fixedSampleRate = 16000;
+
+        startButton.addEventListener('click', startRecording);
+        stopButton.addEventListener('click', stopRecording);
+        sendTextButton.addEventListener('click', sendText);
+
+        audioContext2 = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+
+        async function startRecording() {
+            audioQueue.length = 0;
+            if (currentSource) {
+                currentSource.stop();
+                currentSource = null;
+            }
+            isPlaying = false;
+            
+            if (audioContext) {
+                audioContext.close();
+            }
+            if (processor) {
+                processor.disconnect();
+            }
+
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: {autoGainControl: false, echoCancellation: true, noiseSuppression: false, latency: 0.001} });
+
+            audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: fixedSampleRate });
+            const input = audioContext.createMediaStreamSource(localStream);
+            processor = audioContext.createScriptProcessor(256, 1, 1);
+
+            processor.onaudioprocess = (e) => {
+                if (!isRecording) return;
+
+                const inputData = e.inputBuffer.getChannelData(0);
+
+                const int16Array = new Int16Array(inputData.length);
+                for (let i = 0; i < inputData.length; i++) {
+                    int16Array[i] = inputData[i] * 0x7FFF;
+                }
+                socket.emit('audio', JSON.stringify({ sample_rate: audioContext.sampleRate, audio: Array.from(new Uint8Array(int16Array.buffer)) }));
+                drawWaveform(inputData, inputCtx);
+            };
+
+            input.connect(processor);
+            processor.connect(audioContext.destination);
+
+            isRecording = true;
+            startButton.disabled = true;
+            stopButton.disabled = false;
+
+            socket.emit('recording-started');
+        }
+
+        function stopRecording() {
+            audioQueue.length = 0;
+            if (currentSource) {
+                currentSource.stop();
+                currentSource = null;
+            }
+            isPlaying = false;
+            isRecording = false;
+            localStream.getTracks().forEach(track => track.stop());
+            startButton.disabled = false;
+            stopButton.disabled = true;
+
+            socket.emit('recording-stopped');
+        }
+
+        socket.on('too_many_users', (data) => {
+            alert('Too many users connected. Please refresh and try again.');
+        });
+
+        socket.on('out_time', (data) => {
+            alert('Connect time out. Please refresh and reconnect.');
+        });
+
+        socket.on('prompt_success', (data) => {
+            alert('Prompt set success. Please restart interaction.');
+        });
+        
+        socket.on('audio', (data) => {
+            audioQueue.push(data);
+            if (!isPlaying) {
+                playNextAudio();
+            }
+        });
+        socket.on('stop_tts', () => {
+            audioQueue.length = 0;
+            if (currentSource) {
+                currentSource.stop();
+                currentSource = null;
+            }
+            isPlaying = false;
+        });
+
+        function playNextAudio() {
+            if (audioQueue.length === 0) {
+                isPlaying = false;
+                return;
+            }
+
+            isPlaying = true;
+            const data = audioQueue.shift();
+            const audioBuffer = audioContext2.createBuffer(1, data.byteLength / 2, audioContext2.sampleRate);
+            const float32Array = new Float32Array(data.byteLength / 2);
+            const int16Array = new Int16Array(data);
+            for (let i = 0; i < int16Array.length; i++) {
+                float32Array[i] = int16Array[i] / 0x7FFF;
+            }
+            drawWaveform(float32Array, outputCtx);
+            audioBuffer.copyToChannel(float32Array, 0);
+            const source = audioContext2.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContext2.destination);
+            source.start();
+
+            currentSource = source;
+
+            source.onended = () => {
+                currentSource = null;
+                playNextAudio();
+            };
+        }
+
+        function drawWaveform(data, context) {
+            context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+            context.beginPath();
+            context.moveTo(0, context.canvas.height / 2);
+            for (let i = 0; i < data.length; i++) {
+                const x = (i / data.length) * context.canvas.width;
+                const y = (1 - data[i]) * context.canvas.height / 2;
+                context.lineTo(x, y);
+            }
+            context.stroke();
+        }
+
+        function sendText() {
+            const text = textInput.value;
+            if (text.trim() !== "") {
+                socket.emit('prompt_text', text);
+            }
+        }
+    </script>
+</body>
+</html>
