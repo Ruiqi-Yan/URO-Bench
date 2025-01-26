@@ -1,618 +1,158 @@
 #!/bin/bash
-export CUDA_VISIBLE_DEVICES=5
-export TOKENIZERS_PARALLELISM=false
-export OMP_NUM_THREADS=1
-export LD_LIBRARY_PATH=/home/visitor/miniconda3/envs/yrq-omni/lib:$LD_LIBRARY_PATH
-export PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT=2
-export CUDA_LAUNCH_BLOCKING=1
+export CUDA_VISIBLE_DEVICES=6
+export HF_ENDPOINT=https://hf-mirror.com
+
 
 # code dir
-code_dir=/data/ruiqi.yan/SLAM-LLM/examples/benchmark
-ckpt_dir=/data/ruiqi.yan/omni_models/LLaMA-Omni-test
+model_name=GLM-4-Voice
+code_dir=/data/ruiqi.yan/URO-Bench
+ckpt_dir=/data/ruiqi.yan/URO-Bench-log/${model_name}-test
+log_dir=/data/ruiqi.yan/URO-Bench-log/${model_name}-test
+whisper_dir=/data/ruiqi.yan/models/whisper-large-v3
 
-# jsonl dataset
+# all the datasets
+datasets=(
+    "codeswitching_en 70 cs pro en"
+    "codeswitching_zh 70 cs pro zh"
+    "genemotion_en 54 ge pro en"
+    "genemotion_zh 43 ge pro zh"
+    "genstyle_en 44 gs pro en"
+    "genstyle_zh 39 gs pro zh"
+    "mlcpro_en 91 qa pro en"
+    "mlcpro_zh 64 qa pro zh"
+    "safety_en 24 sf pro en"
+    "safety_zh 20 sf pro zh"
+    "SRT_en 43 srt pro en"
+    "SRT_zh 21 srt pro zh"
+    "underemotion_en 137 ue pro en"
+    "underemotion_zh 79 ue pro zh"
+    "multilingual_test 1108 ml pro en"
+)
+
+# eval
+for pair in "${datasets[@]}"
+do
+    # get dataset info
+    dataset_name=$(echo "$pair" | cut -d' ' -f1)
+    sample_number=$(echo "$pair" | cut -d' ' -f2)
+    eval_mode=$(echo "$pair" | cut -d' ' -f3)
+    level=$(echo "$pair" | cut -d' ' -f4)
+    language=$(echo "$pair" | cut -d' ' -f5)
+    dataset_path=/data/ruiqi.yan/URO-Bench-data/${level}/${dataset_name}/test.jsonl
+
+    # output dir
+    infer_output_dir=${log_dir}/eval/${level}/${dataset_name}
+    eval_output_dir=$infer_output_dir/eval_with_asr
+
+    source /home/visitor/miniconda3/etc/profile.d/conda.sh
+    # put your env name here, this env depends on the model you are testing
+    conda activate yrq-omni
+
+    # inference
+    cd $code_dir/examples/${model_name}-test
+    # -m debugpy --listen 5678 --wait-for-client
+    python $code_dir/examples/${model_name}-test/inference_for_eval.py \
+        --input-mode "audio" \
+        --output-dir $infer_output_dir \
+        --val_data_path $dataset_path \
+        --val_data_name $dataset_name \
+        --flow-path $ckpt_dir/glm-4-voice-decoder \
+        --model-path $ckpt_dir/glm-4-voice-9b \
+        --tokenizer-path $ckpt_dir/glm-4-voice-tokenizer \
+        --manifest_format "jsonl"
+
+#     source /home/visitor/miniconda3/etc/profile.d/conda.sh
+#     conda activate yrq-uro               # put your env name here
+#     # asr
+#     python $code_dir/asr_for_eval.py \
+#         --input_dir $infer_output_dir/audio \
+#         --model_dir $whisper_dir \
+#         --output_dir $infer_output_dir \
+#         --number $sample_number
+
+#     # assign scores
+#     if [[ ${eval_mode} == "open" ]]; then
+#         python $code_dir/mark.py \
+#         --mode $eval_mode \
+#         --question $infer_output_dir/question_text.jsonl \
+#         --answer $infer_output_dir/asr_text.jsonl \
+#         --answer_text $infer_output_dir/pred_text.jsonl \
+#         --output_dir $eval_output_dir \
+#         --dataset $dataset_name \
+#         --audio_dir $infer_output_dir/audio
+#     else
+#         python $code_dir/mark.py \
+#         --mode $eval_mode \
+#         --question $infer_output_dir/question_text.jsonl \
+#         --answer $infer_output_dir/asr_text.jsonl \
+#         --answer_text $infer_output_dir/pred_text.jsonl \
+#         --output_dir $eval_output_dir \
+#         --dataset $dataset_name \
+#         --audio_dir $infer_output_dir/audio \
+#         --reference $infer_output_dir/gt_text.jsonl
+#     fi
+
+done
+
+# multi-round eval
+# multi-round datasets
 manifest_format=jsonl
-# alpacaeval_test, 199
-# commoneval_test, 200
-# wildchat_test, 349
-# storal_test, 201
-# summary_test, 118
-# truthful_test, 470
-# gaokao_test, 303
-# gsm8k_test, 582
-# mlc_test, 177
-# repeat_test, 252
-val_data_name="alpacaeval_test"
-val_data_path=/data/ruiqi.yan/data/final/${val_data_name}/test.jsonl
-data_number=199
-
-# inference output dir
-decode_log=/data/ruiqi.yan/omni_models/LLaMA-Omni-test/${val_data_name}
-
-
-cd $ckpt_dir
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-llama-omni          # put your environment name here
-# -m debugpy --listen 5678 --wait-for-client
-python $code_dir/LLaMA-Omni-test/inference_for_eval.py \
-        --dataset $val_data_path \
-        --results-path $decode_log \
-        --s2s \
-        --dur-prediction \
-        --model-path $ckpt_dir/models/Llama-3.1-8B-Omni \
-        --vocoder $ckpt_dir/vocoder/g_00500000 \
-        --vocoder-cfg $ckpt_dir/vocoder/config.json
-
-
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-omni          # put your environment name here
-output_dir=$decode_log/eval_with_asr/${val_data_name}
-
-python $code_dir/asr_for_eval.py \
-        --input_dir $decode_log/audio \
-        --model_dir "/data/ruiqi.yan/models/whisper-large-v3" \
-        --output_dir $decode_log \
-        --number $data_number
-
-# eval mode
-# open: alpacaeval_test, commoneval_test, wildchat_test
-# semi-open: storal_test, summary_test, truthful_test
-# qa: gaokao_test, gsm8k_test, mlc_test, repeat_test
-mode="open"    # open, semi-open, qa, contrast
-
-python $code_dir/mark.py \
-        --mode $mode \
-        --question $decode_log/question_text \
-        --answer $decode_log/asr_text \
-        --output_dir $output_dir \
-        --dataset $val_data_name \
-        # --reference $decode_log/gt_text 
-
-# ----------------------------------------------------------------------
-
-# jsonl dataset
-manifest_format=jsonl
-# alpacaeval_test, 199
-# commoneval_test, 200
-# wildchat_test, 349
-# storal_test, 201
-# summary_test, 118
-# truthful_test, 470
-# gaokao_test, 303
-# gsm8k_test, 582
-# mlc_test, 177
-# repeat_test, 252
-val_data_name="commoneval_test"
-val_data_path=/data/ruiqi.yan/data/final/${val_data_name}/test.jsonl
-data_number=200
-
-# inference output dir
-decode_log=/data/ruiqi.yan/omni_models/LLaMA-Omni-test/${val_data_name}
-
-
-cd $ckpt_dir
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-llama-omni          # put your environment name here
-# -m debugpy --listen 5678 --wait-for-client
-python $code_dir/LLaMA-Omni-test/inference_for_eval.py \
-        --dataset $val_data_path \
-        --results-path $decode_log \
-        --s2s \
-        --dur-prediction \
-        --model-path $ckpt_dir/models/Llama-3.1-8B-Omni \
-        --vocoder $ckpt_dir/vocoder/g_00500000 \
-        --vocoder-cfg $ckpt_dir/vocoder/config.json
-
-
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-omni          # put your environment name here
-output_dir=$decode_log/eval_with_asr/${val_data_name}
-
-python $code_dir/asr_for_eval.py \
-        --input_dir $decode_log/audio \
-        --model_dir "/data/ruiqi.yan/models/whisper-large-v3" \
-        --output_dir $decode_log \
-        --number $data_number
-
-# eval mode
-# open: alpacaeval_test, commoneval_test, wildchat_test
-# semi-open: storal_test, summary_test, truthful_test
-# qa: gaokao_test, gsm8k_test, mlc_test
-# wer: repeat_test
-mode="open"    # open, semi-open, qa, contrast
-
-python $code_dir/mark.py \
-        --mode $mode \
-        --question $decode_log/question_text \
-        --answer $decode_log/asr_text \
-        --output_dir $output_dir \
-        --dataset $val_data_name \
-        # --reference $decode_log/gt_text    
-
-# ----------------------------------------------------------------------
-
-# jsonl dataset
-manifest_format=jsonl
-# alpacaeval_test, 199
-# commoneval_test, 200
-# wildchat_test, 349
-# storal_test, 201
-# summary_test, 118
-# truthful_test, 470
-# gaokao_test, 303
-# gsm8k_test, 582
-# mlc_test, 177
-# repeat_test, 252
-val_data_name="wildchat_test"
-val_data_path=/data/ruiqi.yan/data/final/${val_data_name}/test.jsonl
-data_number=349
-
-# inference output dir
-decode_log=/data/ruiqi.yan/omni_models/LLaMA-Omni-test/${val_data_name}
-
-
-cd $ckpt_dir
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-llama-omni          # put your environment name here
-# -m debugpy --listen 5678 --wait-for-client
-python $code_dir/LLaMA-Omni-test/inference_for_eval.py \
-        --dataset $val_data_path \
-        --results-path $decode_log \
-        --s2s \
-        --dur-prediction \
-        --model-path $ckpt_dir/models/Llama-3.1-8B-Omni \
-        --vocoder $ckpt_dir/vocoder/g_00500000 \
-        --vocoder-cfg $ckpt_dir/vocoder/config.json
-
-
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-omni          # put your environment name here
-output_dir=$decode_log/eval_with_asr/${val_data_name}
-
-python $code_dir/asr_for_eval.py \
-        --input_dir $decode_log/audio \
-        --model_dir "/data/ruiqi.yan/models/whisper-large-v3" \
-        --output_dir $decode_log \
-        --number $data_number
-
-# eval mode
-# open: alpacaeval_test, commoneval_test, wildchat_test
-# semi-open: storal_test, summary_test, truthful_test
-# qa: gaokao_test, gsm8k_test, mlc_test
-# wer: repeat_test
-mode="open"    # open, semi-open, qa, contrast
-
-python $code_dir/mark.py \
-        --mode $mode \
-        --question $decode_log/question_text \
-        --answer $decode_log/asr_text \
-        --output_dir $output_dir \
-        --dataset $val_data_name \
-        # --reference $decode_log/gt_text  
-
-# ----------------------------------------------------------------------
-
-# jsonl dataset
-manifest_format=jsonl
-# alpacaeval_test, 199
-# commoneval_test, 200
-# wildchat_test, 349
-# storal_test, 201
-# summary_test, 118
-# truthful_test, 470
-# gaokao_test, 303
-# gsm8k_test, 582
-# mlc_test, 177
-# repeat_test, 252
-val_data_name="storal_test"
-val_data_path=/data/ruiqi.yan/data/final/${val_data_name}/test.jsonl
-data_number=201
-
-# inference output dir
-decode_log=/data/ruiqi.yan/omni_models/LLaMA-Omni-test/${val_data_name}
-
-
-cd $ckpt_dir
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-llama-omni          # put your environment name here
-# -m debugpy --listen 5678 --wait-for-client
-python $code_dir/LLaMA-Omni-test/inference_for_eval.py \
-        --dataset $val_data_path \
-        --results-path $decode_log \
-        --s2s \
-        --dur-prediction \
-        --model-path $ckpt_dir/models/Llama-3.1-8B-Omni \
-        --vocoder $ckpt_dir/vocoder/g_00500000 \
-        --vocoder-cfg $ckpt_dir/vocoder/config.json
-
-
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-omni          # put your environment name here
-output_dir=$decode_log/eval_with_asr/${val_data_name}
-
-python $code_dir/asr_for_eval.py \
-        --input_dir $decode_log/audio \
-        --model_dir "/data/ruiqi.yan/models/whisper-large-v3" \
-        --output_dir $decode_log \
-        --number $data_number
-
-# eval mode
-# open: alpacaeval_test, commoneval_test, wildchat_test
-# semi-open: storal_test, summary_test, truthful_test
-# qa: gaokao_test, gsm8k_test, mlc_test
-# wer: repeat_test
-mode="semi-open"    # open, semi-open, qa, contrast
-
-python $code_dir/mark.py \
-        --mode $mode \
-        --question $decode_log/question_text \
-        --answer $decode_log/asr_text \
-        --output_dir $output_dir \
-        --dataset $val_data_name \
-        --reference $decode_log/gt_text  
-
-# ----------------------------------------------------------------------
-
-# jsonl dataset
-manifest_format=jsonl
-# alpacaeval_test, 199
-# commoneval_test, 200
-# wildchat_test, 349
-# storal_test, 201
-# summary_test, 118
-# truthful_test, 470
-# gaokao_test, 303
-# gsm8k_test, 582
-# mlc_test, 177
-# repeat_test, 252
-val_data_name="summary_test"
-val_data_path=/data/ruiqi.yan/data/final/${val_data_name}/test.jsonl
-data_number=118
-
-# inference output dir
-decode_log=/data/ruiqi.yan/omni_models/LLaMA-Omni-test/${val_data_name}
-
-
-cd $ckpt_dir
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-llama-omni          # put your environment name here
-# -m debugpy --listen 5678 --wait-for-client
-python $code_dir/LLaMA-Omni-test/inference_for_eval.py \
-        --dataset $val_data_path \
-        --results-path $decode_log \
-        --s2s \
-        --dur-prediction \
-        --model-path $ckpt_dir/models/Llama-3.1-8B-Omni \
-        --vocoder $ckpt_dir/vocoder/g_00500000 \
-        --vocoder-cfg $ckpt_dir/vocoder/config.json
-
-
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-omni          # put your environment name here
-output_dir=$decode_log/eval_with_asr/${val_data_name}
-
-python $code_dir/asr_for_eval.py \
-        --input_dir $decode_log/audio \
-        --model_dir "/data/ruiqi.yan/models/whisper-large-v3" \
-        --output_dir $decode_log \
-        --number $data_number
-
-# eval mode
-# open: alpacaeval_test, commoneval_test, wildchat_test
-# semi-open: storal_test, summary_test, truthful_test
-# qa: gaokao_test, gsm8k_test, mlc_test
-# wer: repeat_test
-mode="semi-open"    # open, semi-open, qa, contrast
-
-python $code_dir/mark.py \
-        --mode $mode \
-        --question $decode_log/question_text \
-        --answer $decode_log/asr_text \
-        --output_dir $output_dir \
-        --dataset $val_data_name \
-        --reference $decode_log/gt_text  
-
-# ----------------------------------------------------------------------
-
-# jsonl dataset
-manifest_format=jsonl
-# alpacaeval_test, 199
-# commoneval_test, 200
-# wildchat_test, 349
-# storal_test, 201
-# summary_test, 118
-# truthful_test, 470
-# gaokao_test, 303
-# gsm8k_test, 582
-# mlc_test, 177
-# repeat_test, 252
-val_data_name="truthful_test"
-val_data_path=/data/ruiqi.yan/data/final/${val_data_name}/test.jsonl
-data_number=470
-
-# inference output dir
-decode_log=/data/ruiqi.yan/omni_models/LLaMA-Omni-test/${val_data_name}
-
-
-cd $ckpt_dir
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-llama-omni          # put your environment name here
-# -m debugpy --listen 5678 --wait-for-client
-python $code_dir/LLaMA-Omni-test/inference_for_eval.py \
-        --dataset $val_data_path \
-        --results-path $decode_log \
-        --s2s \
-        --dur-prediction \
-        --model-path $ckpt_dir/models/Llama-3.1-8B-Omni \
-        --vocoder $ckpt_dir/vocoder/g_00500000 \
-        --vocoder-cfg $ckpt_dir/vocoder/config.json
-
-
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-omni          # put your environment name here
-output_dir=$decode_log/eval_with_asr/${val_data_name}
-
-python $code_dir/asr_for_eval.py \
-        --input_dir $decode_log/audio \
-        --model_dir "/data/ruiqi.yan/models/whisper-large-v3" \
-        --output_dir $decode_log \
-        --number $data_number
-
-# eval mode
-# open: alpacaeval_test, commoneval_test, wildchat_test
-# semi-open: storal_test, summary_test, truthful_test
-# qa: gaokao_test, gsm8k_test, mlc_test
-# wer: repeat_test
-mode="semi-open"    # open, semi-open, qa, contrast
-
-python $code_dir/mark.py \
-        --mode $mode \
-        --question $decode_log/question_text \
-        --answer $decode_log/asr_text \
-        --output_dir $output_dir \
-        --dataset $val_data_name \
-        --reference $decode_log/gt_text  
-
-# ----------------------------------------------------------------------
-
-# jsonl dataset
-manifest_format=jsonl
-# alpacaeval_test, 199
-# commoneval_test, 200
-# wildchat_test, 349
-# storal_test, 201
-# summary_test, 118
-# truthful_test, 470
-# gaokao_test, 303
-# gsm8k_test, 582
-# mlc_test, 177
-# repeat_test, 252
-val_data_name="gaokao_test"
-val_data_path=/data/ruiqi.yan/data/final/${val_data_name}/test.jsonl
-data_number=303
-
-# inference output dir
-decode_log=/data/ruiqi.yan/omni_models/LLaMA-Omni-test/${val_data_name}
-
-
-cd $ckpt_dir
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-llama-omni          # put your environment name here
-# -m debugpy --listen 5678 --wait-for-client
-python $code_dir/LLaMA-Omni-test/inference_for_eval.py \
-        --dataset $val_data_path \
-        --results-path $decode_log \
-        --s2s \
-        --dur-prediction \
-        --model-path $ckpt_dir/models/Llama-3.1-8B-Omni \
-        --vocoder $ckpt_dir/vocoder/g_00500000 \
-        --vocoder-cfg $ckpt_dir/vocoder/config.json
-
-
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-omni          # put your environment name here
-output_dir=$decode_log/eval_with_asr/${val_data_name}
-
-python $code_dir/asr_for_eval.py \
-        --input_dir $decode_log/audio \
-        --model_dir "/data/ruiqi.yan/models/whisper-large-v3" \
-        --output_dir $decode_log \
-        --number $data_number
-
-# eval mode
-# open: alpacaeval_test, commoneval_test, wildchat_test
-# semi-open: storal_test, summary_test, truthful_test
-# qa: gaokao_test, gsm8k_test, mlc_test
-# wer: repeat_test
-mode="qa"    # open, semi-open, qa, contrast
-
-python $code_dir/mark.py \
-        --mode $mode \
-        --question $decode_log/question_text \
-        --answer $decode_log/asr_text \
-        --output_dir $output_dir \
-        --dataset $val_data_name \
-        --reference $decode_log/gt_text    
-
-# ----------------------------------------------------------------------
-
-# jsonl dataset
-manifest_format=jsonl
-# alpacaeval_test, 199
-# commoneval_test, 200
-# wildchat_test, 349
-# storal_test, 201
-# summary_test, 118
-# truthful_test, 470
-# gaokao_test, 303
-# gsm8k_test, 582
-# mlc_test, 177
-# repeat_test, 252
-val_data_name="gsm8k_test"
-val_data_path=/data/ruiqi.yan/data/final/${val_data_name}/test.jsonl
-data_number=582
-
-# inference output dir
-decode_log=/data/ruiqi.yan/omni_models/LLaMA-Omni-test/${val_data_name}
-
-
-cd $ckpt_dir
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-llama-omni          # put your environment name here
-# -m debugpy --listen 5678 --wait-for-client
-python $code_dir/LLaMA-Omni-test/inference_for_eval.py \
-        --dataset $val_data_path \
-        --results-path $decode_log \
-        --s2s \
-        --dur-prediction \
-        --model-path $ckpt_dir/models/Llama-3.1-8B-Omni \
-        --vocoder $ckpt_dir/vocoder/g_00500000 \
-        --vocoder-cfg $ckpt_dir/vocoder/config.json
-
-
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-omni          # put your environment name here
-output_dir=$decode_log/eval_with_asr/${val_data_name}
-
-python $code_dir/asr_for_eval.py \
-        --input_dir $decode_log/audio \
-        --model_dir "/data/ruiqi.yan/models/whisper-large-v3" \
-        --output_dir $decode_log \
-        --number $data_number
-
-# eval mode
-# open: alpacaeval_test, commoneval_test, wildchat_test
-# semi-open: storal_test, summary_test, truthful_test
-# qa: gaokao_test, gsm8k_test, mlc_test
-# wer: repeat_test
-mode="qa"    # open, semi-open, qa, contrast
-
-python $code_dir/mark.py \
-        --mode $mode \
-        --question $decode_log/question_text \
-        --answer $decode_log/asr_text \
-        --output_dir $output_dir \
-        --dataset $val_data_name \
-        --reference $decode_log/gt_text    
-
-# ----------------------------------------------------------------------
-
-# jsonl dataset
-manifest_format=jsonl
-# alpacaeval_test, 199
-# commoneval_test, 200
-# wildchat_test, 349
-# storal_test, 201
-# summary_test, 118
-# truthful_test, 470
-# gaokao_test, 303
-# gsm8k_test, 582
-# mlc_test, 177
-# repeat_test, 252
-val_data_name="mlc_test"
-val_data_path=/data/ruiqi.yan/data/final/${val_data_name}/test.jsonl
-data_number=177
-
-# inference output dir
-decode_log=/data/ruiqi.yan/omni_models/LLaMA-Omni-test/${val_data_name}
-
-
-cd $ckpt_dir
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-llama-omni          # put your environment name here
-# -m debugpy --listen 5678 --wait-for-client
-python $code_dir/LLaMA-Omni-test/inference_for_eval.py \
-        --dataset $val_data_path \
-        --results-path $decode_log \
-        --s2s \
-        --dur-prediction \
-        --model-path $ckpt_dir/models/Llama-3.1-8B-Omni \
-        --vocoder $ckpt_dir/vocoder/g_00500000 \
-        --vocoder-cfg $ckpt_dir/vocoder/config.json
-
-
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-omni          # put your environment name here
-output_dir=$decode_log/eval_with_asr/${val_data_name}
-
-python $code_dir/asr_for_eval.py \
-        --input_dir $decode_log/audio \
-        --model_dir "/data/ruiqi.yan/models/whisper-large-v3" \
-        --output_dir $decode_log \
-        --number $data_number
-
-# eval mode
-# open: alpacaeval_test, commoneval_test, wildchat_test
-# semi-open: storal_test, summary_test, truthful_test
-# qa: gaokao_test, gsm8k_test, mlc_test
-# wer: repeat_test
-mode="qa"    # open, semi-open, qa, contrast
-
-python $code_dir/mark.py \
-        --mode $mode \
-        --question $decode_log/question_text \
-        --answer $decode_log/asr_text \
-        --output_dir $output_dir \
-        --dataset $val_data_name \
-        --reference $decode_log/gt_text   
-
-# ----------------------------------------------------------------------
-
-# jsonl dataset
-manifest_format=jsonl
-# alpacaeval_test, 199
-# commoneval_test, 200
-# wildchat_test, 349
-# storal_test, 201
-# summary_test, 118
-# truthful_test, 470
-# gaokao_test, 303
-# gsm8k_test, 582
-# mlc_test, 177
-# repeat_test, 252
-val_data_name="repeat_test"
-val_data_path=/data/ruiqi.yan/data/final/${val_data_name}/test.jsonl
-data_number=252
-
-# inference output dir
-decode_log=/data/ruiqi.yan/omni_models/LLaMA-Omni-test/${val_data_name}
-
-
-cd $ckpt_dir
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-llama-omni          # put your environment name here
-# -m debugpy --listen 5678 --wait-for-client
-python $code_dir/LLaMA-Omni-test/inference_for_eval.py \
-        --dataset $val_data_path \
-        --results-path $decode_log \
-        --s2s \
-        --dur-prediction \
-        --model-path $ckpt_dir/models/Llama-3.1-8B-Omni \
-        --vocoder $ckpt_dir/vocoder/g_00500000 \
-        --vocoder-cfg $ckpt_dir/vocoder/config.json
-
-
-source /home/visitor/miniconda3/etc/profile.d/conda.sh
-conda activate yrq-omni          # put your environment name here
-output_dir=$decode_log/eval_with_asr/${val_data_name}
-
-python $code_dir/asr_for_eval.py \
-        --input_dir $decode_log/audio \
-        --model_dir "/data/ruiqi.yan/models/whisper-large-v3" \
-        --output_dir $decode_log \
-        --number $data_number
-
-# eval mode
-# open: alpacaeval_test, commoneval_test, wildchat_test
-# semi-open: storal_test, summary_test, truthful_test
-# qa: gaokao_test, gsm8k_test, mlc_test
-# wer: repeat_test
-mode="wer"    # open, semi-open, qa, contrast
-
-python $code_dir/mark.py \
-        --mode $mode \
-        --question $decode_log/question_text \
-        --answer $decode_log/asr_text \
-        --output_dir $output_dir \
-        --dataset $val_data_name \
-        --reference $decode_log/gt_text 
+datasets=(
+    "mtpro_en 55 multi pro en"
+    "mtpro_zh 49 multi pro zh"
+)
+
+# eval
+for pair in "${datasets[@]}"
+do
+    # get dataset info
+    dataset_name=$(echo "$pair" | cut -d' ' -f1)
+    sample_number=$(echo "$pair" | cut -d' ' -f2)
+    eval_mode=$(echo "$pair" | cut -d' ' -f3)
+    level=$(echo "$pair" | cut -d' ' -f4)
+    language=$(echo "$pair" | cut -d' ' -f5)
+    dataset_path=/data/ruiqi.yan/URO-Bench-data/${level}/${dataset_name}/test.jsonl
+
+    # output dir
+    infer_output_dir=${log_dir}/eval/${level}/${dataset_name}
+    eval_output_dir=$infer_output_dir/eval_with_asr
+
+    source /home/visitor/miniconda3/etc/profile.d/conda.sh
+    # put your env name here, this env depends on the model you are testing
+    conda activate yrq-omni
+
+    # inference
+    cd $code_dir/examples/${model_name}-test
+    # python -m debugpy --listen 5678 --wait-for-client inference_multi-round.py \
+    python $code_dir/examples/${model_name}-test/inference_multi-round.py \
+        --input-jsonl $dataset_path \
+        --output-dir $infer_output_dir \
+        --model-path $ckpt_dir/glm-4-voice-9b \
+        --tokenizer-path $ckpt_dir/glm-4-voice-tokenizer \
+        --flow-path $ckpt_dir/glm-4-voice-decoder
+    
+
+#     source /home/visitor/miniconda3/etc/profile.d/conda.sh
+#     conda activate yrq-uro               # put your env name here
+#     # asr
+#     python $code_dir/asr_for_eval.py \
+#         --input_dir $infer_output_dir \
+#         --model_dir $whisper_dir \
+#         --output_dir $infer_output_dir \
+#         --number $sample_number \
+#         --dataset $dataset_path \
+#         --multi
+
+#     # assign scores
+#     python $code_dir/mark.py \
+#     --mode $eval_mode \
+#     --question $infer_output_dir/output_with_text.jsonl \
+#     --answer $infer_output_dir/output_with_text.jsonl \
+#     --output_dir $eval_output_dir \
+#     --dataset $dataset_name \
+#     --audio_dir $infer_output_dir
+
+done
+
+# # conclusion
+# python $code_dir/evaluate.py --eval_dir ${log_dir}/eval
