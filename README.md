@@ -20,7 +20,7 @@
 
 
 ## News
-- [Update Aug. 03, 2025] We have reconstructed the 6 datasets in the Chinese Basic Track and added four new ones — Wildchat-zh, HSK5-zh, APE-zh, and SQuAD-zh — so that the Chinese and English datasets are now fully paired. All 40 datasets are available on HuggingFace, and we also provide a curated [miniset](https://huggingface.co/datasets/Honggao/URO-Bench/blob/main/URO-Bench-mini.zip) of 1,000 samples for quick evaluation before full-scale assessment. The corresponding test results have also been updated.
+- [Update Aug. 03, 2025] We have reconstructed the 6 datasets in the Chinese Basic Track and added four new ones — Wildchat-zh, HSK5-zh, APE-zh, and SQuAD-zh — so that the Chinese and English datasets are now fully paired. Safety-en, Safety-zh, and SRT-zh were expanded to a total of 25 samples. All 40 datasets are available on HuggingFace, and we also provide a curated [miniset](https://huggingface.co/datasets/Honggao/URO-Bench/blob/main/URO-Bench-mini.zip) of 1,000 samples for quick evaluation before full-scale assessment. The corresponding test results have also been updated.
 - [Update Feb. 25, 2025] 🔥🔥🔥 code and data of URO-Bench have been released!
 
 
@@ -89,10 +89,10 @@ The test sets are divided into 2 tracks, basic and pro.
 | GenStyle-zh     | pro   | zh   |    39     |     Speech style generation                                   |
 | MLCpro-en       | pro   | en   |    91     |     Math, Logic, Commen sense                                        |
 | MLCpro-zh       | pro   | zh   |    64     |     Math, Logic, Commen sense                                        |
-| Safety-en       | pro   | en   |    24     |     Pravicy-related                              |
-| Safety-zh       | pro   | zh   |    20     |     Pravicy-related                              |
+| Safety-en       | pro   | en   |    25     |     Pravicy-related                              |
+| Safety-zh       | pro   | zh   |    25     |     Pravicy-related                              |
 | SRT-en          | pro   | en   |    43     |     Singing, Reciting, Tongue twister                                      |
-| SRT-zh          | pro   | zh   |    21     |     Singing, Reciting, Tongue twister                                      |
+| SRT-zh          | pro   | zh   |    25     |     Singing, Reciting, Tongue twister                                      |
 | UnderEmotion-en | pro   | en   |    137    |     Speech emotion understanding                                |
 | UnderEmotion-zh | pro   | zh   |    79     |     Speech emotion understanding                                |
 | Multilingual    | pro   | multi|    1108   |     Multilingual QA                                           |
